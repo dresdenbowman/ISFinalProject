@@ -1,2 +1,2 @@
 # ISFinalProject
-IS 201 Fall Project
+IS 201 Final Project
