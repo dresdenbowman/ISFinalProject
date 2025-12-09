@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Snake vs Computer</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0b1020;
+      color: #f7f7f7;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      min-height: 100vh;
+    }
+
+    h1 {
+      margin-top: 16px;
+      margin-bottom: 4px;
+      font-size: 24px;
+    }
+
+    #subtitle {
+      font-size: 13px;
+      color: #c4c4c4;
+      margin-bottom: 12px;
+      text-align: center;
+    }
+
+    #gameContainer {
+      margin-top: 10px;
+      padding: 12px;
+      border-radius: 12px;
+      background: #111729;
+      box-shadow: 0 10px 26px rgba(0, 0, 0, 0.7);
+      display: inline-block;
+    }
+
+    canvas {
+      background: #050814;
+      border-radius: 8px;
+      display: block;
+    }
+
+    #hud {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 10px;
+      font-size: 14px;
+      gap: 10px;
+    }
+
+    #scores {
+      display: flex;
+      gap: 12px;
+    }
+
+    .badge {
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 13px;
+      background: #1a2336;
+    }
+
+    .player {
+      color: #76ff7a;
+    }
+
+    .cpu {
+      color: #ff6b6b;
+    }
+
+    #message {
+      min-height: 18px;
+      font-size: 13px;
+      color: #f6e58d;
+    }
+
+    #controls {
+      text-align: center;
+      margin-top: 10px;
+      font-size: 12px;
+      color: #d2dae2;
+    }
+
+    button {
+      border: none;
+      background: #3b82f6;
+      color: white;
+      font-size: 13px;
+      padding: 6px 14px;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: transform 0.1s ease, box-shadow 0.1s ease, background 0.2s ease;
+    }
+
+    button:hover {
+      background: #2563eb;
+      box-shadow: 0 0 12px rgba(37, 99, 235, 0.6);
+      transform: translateY(-1px);
+    }
+
+    button:active {
+      transform: translateY(0);
+      box-shadow: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>Snake vs Computer</h1>
+  <div id="subtitle">You = green snake | Computer = red snake | Eat the yellow food!</div>
+
+  <div id="gameContainer">
+    <canvas id="game" width="600" height="400"></canvas>
+    <div id="hud">
+      <div id="scores">
+        <div class="badge player">You: <span id="playerScore">0</span></div>
+        <div class="badge cpu">Computer: <span id="cpuScore">0</span></div>
+      </div>
+      <div id="message"></div>
+      <button id="restartBtn">Restart</button>
+    </div>
+  </div>
+
+  <div id="controls">
+    Move with <strong>Arrow keys</strong> or <strong>WASD</strong>.<br />
+    Score: +1 per food. Crash and the other snake gets +3 and wins the round.
+  </div>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+
+    const tileSize = 20;
+    const cols = canvas.width / tileSize;
+    const rows = canvas.height / tileSize;
+
+    let playerSnake, cpuSnake, food;
+    let playerDir, cpuDir;
+    let pendingPlayerDir;
+    let playerScore = 0;
+    let cpuScore = 0;
+    let gameOver = false;
+    let loopId = null;
+    const tickSpeed = 120; // ms per game step
+
+    const messageEl = document.getElementById("message");
+    const playerScoreEl = document.getElementById("playerScore");
+    const cpuScoreEl = document.getElementById("cpuScore");
+    const restartBtn = document.getElementById("restartBtn");
+
+    const DIRS = {
+      LEFT: { x: -1, y: 0 },
+      RIGHT: { x: 1, y: 0 },
+      UP: { x: 0, y: -1 },
+      DOWN: { x: 0, y: 1 },
+    };
+
+    function start() {
+      playerSnake = [
+        { x: 5, y: Math.floor(rows / 2) },
+        { x: 4, y: Math.floor(rows / 2) },
+        { x: 3, y: Math.floor(rows / 2) },
+      ];
+      cpuSnake = [
+        { x: cols - 6, y: Math.floor(rows / 2) },
+        { x: cols - 5, y: Math.floor(rows / 2) },
+        { x: cols - 4, y: Math.floor(rows / 2) },
+      ];
+      playerDir = DIRS.RIGHT;
+      cpuDir = DIRS.LEFT;
+      pendingPlayerDir = playerDir;
+      food = randomFood();
+      gameOver = false;
+      messageEl.textContent = "Game on!";
+      if (loopId) clearInterval(loopId);
+      loopId = setInterval(gameLoop, tickSpeed);
+      draw();
+    }
+
+    function resetScoresAndStart() {
+      playerScore = 0;
+      cpuScore = 0;
+      updateScoreUI();
+      start();
+    }
+
+    restartBtn.addEventListener("click", resetScoresAndStart);
+
+    function updateScoreUI() {
+      playerScoreEl.textContent = playerScore;
+      cpuScoreEl.textContent = cpuScore;
+    }
+
+    function randomFood() {
+      while (true) {
+        const x = Math.floor(Math.random() * cols);
+        const y = Math.floor(Math.random() * rows);
+        if (
+          !occupiedBySnake({ x, y }, playerSnake) &&
+          !occupiedBySnake({ x, y }, cpuSnake)
+        ) {
+          return { x, y };
+        }
+      }
+    }
+
+    function occupiedBySnake(cell, snake) {
+      return snake.some((p) => p.x === cell.x && p.y === cell.y);
+    }
+
+    function opposite(dir1, dir2) {
+      return dir1.x === -dir2.x && dir1.y === -dir2.y;
+    }
+
+    // Player controls
+    window.addEventListener("keydown", (e) => {
+      if (gameOver) return;
+      let newDir = null;
+      switch (e.key) {
+        case "ArrowUp":
+        case "w":
+        case "W":
+          newDir = DIRS.UP;
+          break;
+        case "ArrowDown":
+        case "s":
+        case "S":
+          newDir = DIRS.DOWN;
+          break;
+        case "ArrowLeft":
+        case "a":
+        case "A":
+          newDir = DIRS.LEFT;
+          break;
+        case "ArrowRight":
+        case "d":
+        case "D":
+          newDir = DIRS.RIGHT;
+          break;
+      }
+      if (!newDir) return;
+      // Only queue a new direction if it's not directly opposite
+      if (!opposite(newDir, playerDir)) {
+        pendingPlayerDir = newDir;
+      }
+    });
+
+    function gameLoop() {
+      if (gameOver) return;
+
+      // Apply queued direction for player
+      if (!opposite(pendingPlayerDir, playerDir)) {
+        playerDir = pendingPlayerDir;
+      }
+
+      // Decide CPU direction
+      cpuDir = chooseCpuDirection();
+
+      // Compute next heads
+      const nextPlayerHead = {
+        x: playerSnake[0].x + playerDir.x,
+        y: playerSnake[0].y + playerDir.y,
+      };
+      const nextCpuHead = {
+        x: cpuSnake[0].x + cpuDir.x,
+        y: cpuSnake[0].y + cpuDir.y,
+      };
+
+      // Check collisions BEFORE actually moving
+      const playerCrash = checkCrash(nextPlayerHead, playerSnake, cpuSnake);
+      const cpuCrash = checkCrash(nextCpuHead, cpuSnake, playerSnake);
+
+      // If both move into same cell, both crash
+      const headOnCollision =
+        nextPlayerHead.x === nextCpuHead.x &&
+        nextPlayerHead.y === nextCpuHead.y;
+
+      if (headOnCollision) {
+        endRound("Both snakes crashed! That's a tie.");
+        draw();
+        return;
+      }
+
+      if (playerCrash && cpuCrash) {
+        endRound("Both snakes crashed! That's a tie.");
+        draw();
+        return;
+      } else if (playerCrash) {
+        cpuScore += 3;
+        updateScoreUI();
+        endRound("You crashed! Computer wins this round.");
+        draw();
+        return;
+      } else if (cpuCrash) {
+        playerScore += 3;
+        updateScoreUI();
+        endRound("Computer crashed! You win this round.");
+        draw();
+        return;
+      }
+
+      // Move player snake
+      moveSnake(playerSnake, nextPlayerHead, "player");
+
+      // Move CPU snake
+      moveSnake(cpuSnake, nextCpuHead, "cpu");
+
+      draw();
+    }
+
+    function endRound(msg) {
+      gameOver = true;
+      messageEl.textContent = msg + " Hit Restart to play again.";
+      if (loopId) {
+        clearInterval(loopId);
+        loopId = null;
+      }
+    }
+
+    function checkCrash(nextHead, selfSnake, otherSnake) {
+      // Wall collision
+      if (
+        nextHead.x < 0 ||
+        nextHead.x >= cols ||
+        nextHead.y < 0 ||
+        nextHead.y >= rows
+      ) {
+        return true;
+      }
+      // Body collision with self (ignore tail because it moves, but easier to just check all for this simple game)
+      if (occupiedBySnake(nextHead, selfSnake)) {
+        return true;
+      }
+      // Collision with other snake body
+      if (occupiedBySnake(nextHead, otherSnake)) {
+        return true;
+      }
+      return false;
+    }
+
+    function moveSnake(snake, nextHead, who) {
+      const ateFood = nextHead.x === food.x && nextHead.y === food.y;
+      snake.unshift(nextHead); // add new head
+
+      if (ateFood) {
+        if (who === "player") {
+          playerScore += 1;
+        } else {
+          cpuScore += 1;
+        }
+        updateScoreUI();
+        food = randomFood();
+      } else {
+        snake.pop(); // remove tail
+      }
+    }
+
+    function chooseCpuDirection() {
+      // Greedy-ish AI: pick safe direction that gets closer to food
+      const possibleDirs = [DIRS.UP, DIRS.DOWN, DIRS.LEFT, DIRS.RIGHT];
+
+      const safeDirs = possibleDirs.filter((dir) => {
+        // avoid reversing directly if possible
+        if (opposite(dir, cpuDir)) return false;
+
+        const next = {
+          x: cpuSnake[0].x + dir.x,
+          y: cpuSnake[0].y + dir.y,
+        };
+        return !checkCrash(next, cpuSnake, playerSnake);
+      });
+
+      if (safeDirs.length === 0) {
+        // If no safe directions found, at least try to not instantly crash
+        return cpuDir;
+      }
+
+      // Pick direction that minimizes Manhattan distance to food
+      let bestDir = safeDirs[0];
+      let bestDist = Infinity;
+      for (const dir of safeDirs) {
+        const nx = cpuSnake[0].x + dir.x;
+        const ny = cpuSnake[0].y + dir.y;
+        const dist = Math.abs(nx - food.x) + Math.abs(ny - food.y);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestDir = dir;
+        }
+      }
+      return bestDir;
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw grid (optional faint grid for looks)
+      ctx.save();
+      ctx.globalAlpha = 0.06;
+      ctx.beginPath();
+      for (let x = 0; x <= cols; x++) {
+        ctx.moveTo(x * tileSize, 0);
+        ctx.lineTo(x * tileSize, canvas.height);
+      }
+      for (let y = 0; y <= rows; y++) {
+        ctx.moveTo(0, y * tileSize);
+        ctx.lineTo(canvas.width, y * tileSize);
+      }
+      ctx.strokeStyle = "#ffffff";
+      ctx.stroke();
+      ctx.restore();
+
+      // Draw food
+      ctx.fillStyle = "#ffd93d";
+      ctx.fillRect(
+        food.x * tileSize + 2,
+        food.y * tileSize + 2,
+        tileSize - 4,
+        tileSize - 4
+      );
+
+      // Draw player snake
+      drawSnake(playerSnake, "#4ade80");
+
+      // Draw CPU snake
+      drawSnake(cpuSnake, "#fb7185");
+    }
+
+    function drawSnake(snake, color) {
+      ctx.fillStyle = color;
+      for (let i = 0; i < snake.length; i++) {
+        const p = snake[i];
+        const isHead = i === 0;
+        const size = tileSize - (isHead ? 2 : 4);
+        const offset = (tileSize - size) / 2;
+        ctx.fillRect(
+          p.x * tileSize + offset,
+          p.y * tileSize + offset,
+          size,
+          size
+        );
+      }
+    }
+
+    // Start the first game
+    resetScoresAndStart();
+  </script>
+</body>
+</html>

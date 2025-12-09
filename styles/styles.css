@@ -1,0 +1,17 @@
+body{
+    background-color:rgb(132, 129, 120);
+}
+
+h1{
+    color:red;
+    text-align:center;
+    font-size:72px;
+    font-weight:bold;
+    font-style:italic;
+    text-decoration:underline;
+}
+
+li{
+    color:brown;
+    font-family:Verdana, Geneva, Tahoma, sans-serif
+}
